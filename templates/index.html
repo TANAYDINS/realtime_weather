@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerçek Zamanlı Hava Durumu ve Sayısal Analiz Paneli</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        /* Bu inline stiller CSS değişkenlerini kullanabilir veya tamamen style.css'e taşınabilir. */
+        .analysis-section { margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border-color, #ddd); }
+        .analysis-section h2 { text-align: center; color: var(--primary-accent-color, #34495e); margin-bottom: 20px; }
+        /* .chart-wrapper için genel yükseklik style.css'e taşındı */
+        .note { font-size: 0.8em; text-align: center; margin-top: 5px; color: var(--text-muted-color, #555); }
+    </style>
+</head>
+<body class=""> <!-- JS ile 'dark-theme' class'ı eklenecek -->
+    <div class="container">
+        <header class="app-header">
+            <div class="logo-title">
+                 <i class="fas fa-cloud-sun-rain app-logo-icon"></i>
+                 <h1>Hava Durumu Paneli</h1>
+            </div>
+            <div class="city-selector-menu">
+                <div class="popular-cities">
+                    <button class="city-button" data-city="İstanbul,TR">İstanbul</button>
+                    <button class="city-button" data-city="Ankara,TR">Ankara</button>
+                    <button class="city-button" data-city="İzmir,TR">İzmir</button>
+                    <button class="city-button" data-city="Mersin,TR">Mersin</button>
+                    <button class="city-button" data-city="Antalya,TR">Antalya</button>
+                    <button class="city-button" data-city="Adana,TR">Adana</button>
+                    <button class="city-button" data-city="Bursa,TR">Bursa</button>
+                </div>
+                <div class="other-cities-container">
+                    <button id="other-cities-button" class="city-button other-cities-trigger">
+                        Diğer Şehirler <i class="fas fa-chevron-down"></i>
+                    </button>
+                    <div id="other-cities-dropdown" class="other-cities-dropdown">
+                        <input type="text" id="other-cities-search" placeholder="Şehir ara...">
+                        <ul id="other-cities-list">
+                            <!-- Dinamik olarak JS ile doldurulacak -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <button id="theme-toggle-button" class="theme-toggle" aria-label="Temayı Değiştir">
+                <i class="fas fa-sun"></i>
+            </button>
+        </header>
+        
+        <h2 id="selected-city-display-header">Seçili Şehir: <span id="city-name-display">--</span></h2>
+
+        <div class="dashboard">
+            <div class="card main-weather"><img id="weather-icon" src="" alt="Hava Durumu İkonu"><div class="temp"><span id="temp_val">--</span>°C</div><div class="desc" id="weather_desc">--</div></div>
+            <div class="card"><h3>Hissedilen</h3><p><span id="feels_like_val">--</span>°C</p></div>
+            <div class="card"><h3>Nem</h3><p><span id="hum_val">--</span>%</p></div>
+            <div class="card"><h3>Basınç</h3><p><span id="pres_val">--</span> hPa</p></div>
+            <div class="card"><h3>Rüzgar Hızı</h3><p><span id="wind_val">--</span> m/s</p></div>
+            <div class="card"><h3>Yağış (API Son 1 Saat)</h3><p><span id="rain_1h_val">--</span> mm</p></div>
+            <div class="card"><h3>G.Doğumu/Batımı</h3><p><span id="sunrise_val">--</span> / <span id="sunset_val">--</span></p></div>
+            <div class="card processing-info"><h3>Sayısal Entegrasyon</h3><p>Trapez: <span id="nm_total_rain_trapezoidal_val">--</span> mm</p><p>Simpson: <span id="nm_total_rain_simpson_val">--</span> mm</p></div>
+            <div class="card processing-info"><h3>Sayısal Türev</h3><p>Değişim Hızı: <span id="nm_temp_derivative_central_val">--</span> °C/dk</p></div>
+        </div>
+
+        <div class="charts-container">
+            <div class="chart-wrapper"><h3 class="chart-title">Sıcaklık Zaman Serisi (API)</h3><canvas id="tempChart"></canvas></div>
+            <div class="chart-wrapper"><h3 class="chart-title">Nem Zaman Serisi (API)</h3><canvas id="humidityChart"></canvas></div>
+        </div>
+
+        <div class="analysis-section">
+            <h2>Sayısal Yöntem Analizleri</h2>
+            <div class="charts-container">
+                <div class="chart-wrapper">
+                    <h3 class="chart-title">Sıcaklık İnterpolasyonu</h3>
+                    <canvas id="tempInterpolationChart"></canvas>
+                    <p class="note">Not: İnterpolasyon, son {{ config_max_history_points | default(30) | tojson | safe }} API veri noktası üzerinden yapılır.</p>
+                </div>
+                <div class="chart-wrapper">
+                    <h3 class="chart-title">Sıcaklık Tahmini (Sonraki 15 dk)</h3>
+                    <canvas id="tempPredictionChart"></canvas>
+                     <p class="note">Not: Tahminler ekstrapolasyona dayalıdır ve güvenilirlikleri sınırlıdır.</p>
+                </div>
+            </div>
+        </div>
+
+         <p class="timestamp">Son Güncelleme (İstemci): <span id="last-update-client">--</span> | Sunucu Veri Zamanı: <span id="last-update-server">--</span></p>
+    </div>
+
+    <script>
+        const JS_CONFIG_MAX_HISTORY_POINTS = {{ config_max_history_points | default(30) | tojson | safe }};
+        const JS_MAX_API_POINTS_FOR_MAIN_CHARTS = {{ 30 | tojson | safe }};
+        const ALL_CITIES_LIST_FROM_FLASK = {{ cities | tojson | safe if cities else [] }};
+        // POPULAR_CITIES_JS_STATIC_LIST HTML'deki butonlarla senkronize olmalı. JS bu listeyi kullanacak.
+        const POPULAR_CITIES_JS_STATIC_LIST = ["İstanbul,TR", "Ankara,TR", "İzmir,TR", "Mersin,TR", "Antalya,TR", "Adana,TR", "Bursa,TR"];
+    </script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
